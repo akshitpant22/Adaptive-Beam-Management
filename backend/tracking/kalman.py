@@ -7,12 +7,9 @@ class KalmanFilter2D:
         self, dt: float = 1.0, process_noise: float = 1.0, measurement_noise: float = 10.0
     ):
         self.dt = dt
-
-        # State transition matrix F (4x4): Constant Velocity Model
-        # Predicts next state from current state: x_k = x_{k-1} + vx * dt
-        self.F = np.array(
+        self.F = np.array(  #State Transition Matrix
             [
-                [1.0, 0.0, self.dt, 0.0],
+                [1.0, 0.0, self.dt, 0.0], #predicts next position using velocity 
                 [0.0, 1.0, 0.0, self.dt],
                 [0.0, 0.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
@@ -20,28 +17,27 @@ class KalmanFilter2D:
             dtype=np.float64,
         )
 
-        # Measurement matrix H (2x4): Maps state vector [x, y, vx, vy] to measurement vector [x, y]
-        self.H = np.array(
+        self.H = np.array( #Measurement Matrix
             [
-                [1.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0], #extracts position from the state vector
                 [0.0, 1.0, 0.0, 0.0],
             ],
             dtype=np.float64,
         )
 
-        # Process noise covariance matrix Q (4x4): Uncertainty in the process model
+        # Process Noise Matrix Q (4x4) - Represents uncertainty in our prediction model
         self.Q = np.eye(4, dtype=np.float64) * process_noise
 
-        # Measurement noise covariance matrix R (2x2): Uncertainty in sensor measurements
+        #Measurement Noise Matrix R (2x2): Represents sensor error
         self.R = np.eye(2, dtype=np.float64) * measurement_noise
 
         # State vector x (4x1 column vector): [x, y, vx, vy]
         self.x = np.zeros((4, 1), dtype=np.float64)
 
-        # Estimate error covariance matrix P (4x4): Initial state uncertainty matrix
+        # Covariance Matrix P (4x4): Stores uncertainty about the state estimate.
         self.P = np.eye(4, dtype=np.float64)
 
-    def predict(self) -> Tuple[float, float]:
+    def predict(self) -> Tuple[float, float]: #predict future state
         """Predict the next state and covariance using the process model F."""
         self.x = self.F @ self.x
         self.P = self.F @ self.P @ self.F.T + self.Q
