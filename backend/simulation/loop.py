@@ -7,6 +7,7 @@ from simulation.environment import (
     create_default_environment,
 )
 from tracking.kalman import KalmanFilter2D, add_sensor_noise
+from decision.engine import DecisionEngine, DecisionEngineConfig
 
 
 class SimulationLoop:
@@ -31,6 +32,10 @@ class SimulationLoop:
             dt=self.dt, process_noise=1.0, measurement_noise=self.noise_std**2
         )
         self.kf.update(self.warden.x, self.warden.y)
+
+        # Initialize Decision Engine
+        self.decision_engine = DecisionEngine()
+        self.last_beam_decision = None
 
     def move_warden(self) -> None:
         """Update warden position and handle boundary bounces on a 1000x1000 grid."""
@@ -61,7 +66,18 @@ class SimulationLoop:
         # 4. Extract full estimated state (x, y, vx, vy)
         _, _, vx_est, vy_est = self.kf.get_state()
 
-        # 5. Build tick log entry
+        # 5. Compute optimal beam decision using Kalman filtered warden position
+        beam_decision = self.decision_engine.compute_optimal_beam(
+            bs_x=self.base_station.x,
+            bs_y=self.base_station.y,
+            rx_x=self.receiver.x,
+            rx_y=self.receiver.y,
+            warden_x=filtered_x,
+            warden_y=filtered_y,
+        )
+        self.last_beam_decision = beam_decision
+
+        # 6. Build tick log entry
         log_entry = {
             "tick": self.current_tick,
             "true_x": float(self.warden.x),
@@ -72,6 +88,12 @@ class SimulationLoop:
             "filtered_y": float(filtered_y),
             "vx_estimated": float(vx_est),
             "vy_estimated": float(vy_est),
+            "optimal_direction": beam_decision["optimal_direction"],
+            "optimal_width": beam_decision["optimal_width"],
+            "rx_snr_db": beam_decision["rx_snr_db"],
+            "warden_snr_db": beam_decision["warden_snr_db"],
+            "secrecy_capacity": beam_decision["secrecy_capacity"],
+            "is_secure": beam_decision["is_secure"],
         }
 
         self.history.append(log_entry)
