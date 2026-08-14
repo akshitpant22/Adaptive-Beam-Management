@@ -19,14 +19,18 @@ def compute_angle(from_x: float, from_y: float, to_x: float, to_y: float) -> flo
 
 
 def compute_gain(beam: BeamConfig, target_angle: float) -> float:
-    """Compute directive gain (in dB) for a given target angle based on beam configuration."""
-    # Angular difference normalized to [-180, 180] range
     diff = (target_angle - beam.direction + 180.0) % 360.0 - 180.0
-
-    # Parametric gain formula: cos^2 roll-off within main lobe half-width
-    if abs(diff) <= (beam.width / 2.0):
+    abs_diff = abs(diff)
+    half_width = beam.width / 2.0
+    
+    if abs_diff <= half_width:
+        # Main lobe: cos^2 pattern
         gain = beam.max_gain * (math.cos(math.pi * diff / beam.width) ** 2)
+    elif abs_diff <= beam.width:
+        # Side lobe: 20% of max gain (realistic side lobe leakage)
+        gain = beam.max_gain * 0.2 * (math.cos(math.pi * diff / beam.width) ** 2)
     else:
-        gain = 0.0
-
+        # Far out: minimal residual gain (not zero)
+        gain = beam.max_gain * 0.05
+    
     return float(gain)

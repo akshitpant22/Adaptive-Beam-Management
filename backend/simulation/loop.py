@@ -8,6 +8,8 @@ from simulation.environment import (
 )
 from tracking.kalman import KalmanFilter2D, add_sensor_noise
 from decision.engine import DecisionEngine, DecisionEngineConfig
+from propagation.occlusion import get_los_status
+from simulation.logger import SimulationLogger
 
 
 class SimulationLoop:
@@ -33,16 +35,44 @@ class SimulationLoop:
         )
         self.kf.update(self.warden.x, self.warden.y)
 
-        # Initialize Decision Engine
+        # Initialize Decision Engine and Logger
         self.decision_engine = DecisionEngine()
         self.last_beam_decision = None
+        self.logger = SimulationLogger()
 
     def move_warden(self) -> None:
-        """Update warden position and handle boundary bounces on a 1000x1000 grid."""
-        self.warden.x += self.warden.vx
-        self.warden.y += self.warden.vy
+        """Update warden position with building collision detection and boundary bounces."""
+        def point_in_building(px: float, py: float, building: Any) -> bool:
+            return (
+                building.x <= px <= building.x + building.width
+                and building.y <= py <= building.y + building.height
+            )
 
-        # Boundary bounce check
+        # 1. Try X movement first
+        new_x = self.warden.x + self.warden.vx
+        new_y = self.warden.y
+
+        x_collision = any(
+            point_in_building(new_x, new_y, b) for b in self.buildings
+        )
+        if x_collision:
+            self.warden.vx = -self.warden.vx
+        else:
+            self.warden.x = new_x
+
+        # 2. Try Y movement second
+        new_y = self.warden.y + self.warden.vy
+        new_x = self.warden.x
+
+        y_collision = any(
+            point_in_building(new_x, new_y, b) for b in self.buildings
+        )
+        if y_collision:
+            self.warden.vy = -self.warden.vy
+        else:
+            self.warden.y = new_y
+
+        # 3. Boundary bounce check
         if self.warden.x < 0 or self.warden.x > 1000:
             self.warden.vx = -self.warden.vx
 
@@ -74,10 +104,22 @@ class SimulationLoop:
             rx_y=self.receiver.y,
             warden_x=filtered_x,
             warden_y=filtered_y,
+            buildings=self.buildings,
         )
         self.last_beam_decision = beam_decision
 
-        # 6. Build tick log entry
+        # 6. Compute Line-of-Sight status for Warden and Receiver
+        los_status = get_los_status(
+            bs_x=self.base_station.x,
+            bs_y=self.base_station.y,
+            warden_x=self.warden.x,
+            warden_y=self.warden.y,
+            rx_x=self.receiver.x,
+            rx_y=self.receiver.y,
+            buildings=self.buildings,
+        )
+
+        # 7. Build tick log entry
         log_entry = {
             "tick": self.current_tick,
             "true_x": float(self.warden.x),
@@ -94,12 +136,28 @@ class SimulationLoop:
             "warden_snr_db": beam_decision["warden_snr_db"],
             "secrecy_capacity": beam_decision["secrecy_capacity"],
             "is_secure": beam_decision["is_secure"],
+            "use_reflection": beam_decision["use_reflection"],
+            "reflection_point_x": beam_decision["reflection_point_x"],
+            "reflection_point_y": beam_decision["reflection_point_y"],
+            "direct_secrecy_capacity": beam_decision["direct_secrecy_capacity"],
+            "reflected_secrecy_capacity": beam_decision["reflected_secrecy_capacity"],
+            "bs_to_warden_los": los_status["bs_to_warden_los"],
+            "bs_to_rx_los": los_status["bs_to_rx_los"],
+            "warden_blocked": los_status["warden_blocked"],
+            "rx_blocked": los_status["rx_blocked"],
         }
+
+        # 8. Log tick into SQLite database
+        self.logger.log_tick(log_entry)
 
         self.history.append(log_entry)
         self.current_tick += 1
 
         return log_entry
+
+    def get_session_summary(self) -> Dict[str, Any]:
+        """Return database summary stats for current simulation session."""
+        return self.logger.get_session_summary()
 
     def run(self) -> List[Dict[str, Any]]:
         """Run the simulation loop for total_ticks and return history."""
