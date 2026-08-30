@@ -6,6 +6,11 @@ from propagation.occlusion import building_to_polygon, has_line_of_sight
 _reflection_cache: dict = {}
 
 
+def clear_reflection_cache():
+    global _reflection_cache
+    _reflection_cache = {}
+
+
 def get_building_walls(building: Any) -> List[Dict[str, Any]]:
     """Return the four wall segments and outward normals for a rectangular building."""
     x, y = building.x, building.y
@@ -82,6 +87,7 @@ def compute_reflection_paths(
         tuple(b.id for b in buildings),
         round(bs_x, 1), round(bs_y, 1),
         round(rx_x, 1), round(rx_y, 1),
+        round(sum(b.x + b.y for b in buildings), 1),
     )
     global _reflection_cache
     if cache_key in _reflection_cache:
@@ -130,7 +136,7 @@ def compute_reflection_paths(
             for wall in walls:
                 x1, y1 = wall["wall_line"].coords[0]
                 x2, y2 = wall["wall_line"].coords[1]
-                for t in [0.25, 0.5, 0.75]:
+                for t in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
                     px = x1 + t * (x2 - x1)
                     py = y1 + t * (y2 - y1)
                     bs_los = has_line_of_sight(
@@ -144,7 +150,7 @@ def compute_reflection_paths(
                             (rx_x-px)**2 + (rx_y-py)**2)
                         direct_dist = math.sqrt(
                             (rx_x-bs_x)**2 + (rx_y-bs_y)**2)
-                        if d1 + d2 < direct_dist * 2.5:
+                        if d1 + d2 < direct_dist * 3.0:
                             results.append({
                                 "building_id": int(building.id),
                                 "reflection_x": float(px),

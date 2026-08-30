@@ -1,6 +1,6 @@
 import math
 from typing import Dict, Any, Optional, List
-from beamforming.beam import BeamConfig
+from beamforming.beam import BeamConfig, compute_angle, compute_gain
 from propagation.signal import (
     compute_signal_at_point,
     compute_path_loss,
@@ -62,7 +62,7 @@ def compute_reflection_aware_secrecy(
     warden_y: float,
     beam: BeamConfig,
     buildings: List[Any],
-    reflection_loss_db: float = 3.0,
+    reflection_loss_db: float = 2.0,
     tx_power_dbm: float = 30.0,
     noise_floor_dbm: float = -90.0,
 ) -> Dict[str, Any]:
@@ -76,32 +76,53 @@ def compute_reflection_aware_secrecy(
     reflection_paths = compute_reflection_paths(bs_x, bs_y, rx_x, rx_y, buildings)
 
     direct_secrecy_capacity = float(direct_report["secrecy_capacity"])
-    reflected_secrecy_capacity = 0.0
-    reflection_point_x: Optional[float] = None
-    reflection_point_y: Optional[float] = None
+    best_reflected_secrecy = 0.0
+    best_reflection_point_x: Optional[float] = None
+    best_reflection_point_y: Optional[float] = None
+    best_ref_rx_snr_db = 0.0
+    best_ref_warden_snr_db = 0.0
 
-    # 3. If reflection paths exist, evaluate shortest path
-    if reflection_paths:
-        best_path = min(reflection_paths, key=lambda p: p["total_path_length"])
-        reflection_point_x = float(best_path["reflection_x"])
-        reflection_point_y = float(best_path["reflection_y"])
+    # 3. Evaluate each reflection path
+    for path in reflection_paths:
+        refl_x = float(path["reflection_x"])
+        refl_y = float(path["reflection_y"])
+        refl_angle = compute_angle(bs_x, bs_y, refl_x, refl_y)
 
-        # Compute reflected SNR at Receiver
-        ref_path_loss = compute_path_loss(best_path["total_path_length"])
+        # Reflected signal at RX:
+        ref_path_loss = compute_path_loss(path["total_path_length"])
         ref_rx_power = (
             tx_power_dbm + beam.max_gain - ref_path_loss - reflection_loss_db
         )
-        ref_snr_db = max(0.0, ref_rx_power - noise_floor_dbm)
-        ref_snr_linear = compute_snr_linear(ref_snr_db)
+        ref_rx_snr_db = max(0.0, ref_rx_power - noise_floor_dbm)
+        ref_rx_snr_linear = compute_snr_linear(ref_rx_snr_db)
 
-        # Compute secrecy capacity over reflected path
-        ref_secrecy = compute_secrecy_capacity(
-            ref_snr_linear, direct_report["warden_snr_linear"]
+        # Warden receives leakage when BS steers beam towards reflection point:
+        refl_beam = BeamConfig(
+            direction=refl_angle, width=beam.width, max_gain=beam.max_gain
         )
-        reflected_secrecy_capacity = float(ref_secrecy)
+        warden_sig = compute_signal_at_point(
+            bs_x, bs_y, warden_x, warden_y, refl_beam, tx_power_dbm, noise_floor_dbm
+        )
 
+        cs = compute_secrecy_capacity(ref_rx_snr_linear, warden_sig["snr_linear"])
+        if cs > best_reflected_secrecy:
+            best_reflected_secrecy = cs
+            best_reflection_point_x = refl_x
+            best_reflection_point_y = refl_y
+            best_ref_rx_snr_db = ref_rx_snr_db
+            best_ref_warden_snr_db = warden_sig["snr_db"]
+
+    reflected_secrecy_capacity = float(best_reflected_secrecy)
     best_secrecy_capacity = max(direct_secrecy_capacity, reflected_secrecy_capacity)
-    use_reflection = bool(reflected_secrecy_capacity > direct_secrecy_capacity)
+    # Keep reflection active until direct path is
+    # clearly better by a margin of 0.5 bps/Hz
+    # This prevents premature switching back to direct
+    use_reflection = bool(
+        reflected_secrecy_capacity > 0 and (
+            direct_secrecy_capacity <= 0 or
+            reflected_secrecy_capacity > direct_secrecy_capacity - 0.5
+        )
+    )
     is_secure = bool(best_secrecy_capacity > 0.0)
 
     return {
@@ -109,9 +130,11 @@ def compute_reflection_aware_secrecy(
         "reflected_secrecy_capacity": float(reflected_secrecy_capacity),
         "best_secrecy_capacity": float(best_secrecy_capacity),
         "use_reflection": use_reflection,
-        "reflection_point_x": reflection_point_x,
-        "reflection_point_y": reflection_point_y,
+        "reflection_point_x": best_reflection_point_x,
+        "reflection_point_y": best_reflection_point_y,
         "direct_rx_snr_db": float(direct_report["rx_snr_db"]),
         "direct_warden_snr_db": float(direct_report["warden_snr_db"]),
+        "reflected_rx_snr_db": float(best_ref_rx_snr_db),
+        "reflected_warden_snr_db": float(best_ref_warden_snr_db),
         "is_secure": is_secure,
     }

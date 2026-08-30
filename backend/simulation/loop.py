@@ -33,10 +33,16 @@ class SimulationLoop:
         self.kf = KalmanFilter2D(
             dt=self.dt, process_noise=1.0, measurement_noise=self.noise_std**2
         )
+        self.kf.x[0, 0] = self.warden.x
+        self.kf.x[1, 0] = self.warden.y
+        self.kf.x[2, 0] = self.warden.vx
+        self.kf.x[3, 0] = self.warden.vy
         self.kf.update(self.warden.x, self.warden.y)
 
         # Initialize Decision Engine and Logger
         self.decision_engine = DecisionEngine()
+        from propagation.reflection import clear_reflection_cache
+        clear_reflection_cache()
         self.last_beam_decision = None
         self.logger = SimulationLogger()
 

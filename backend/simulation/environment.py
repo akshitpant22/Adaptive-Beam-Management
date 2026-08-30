@@ -49,7 +49,7 @@ def create_default_environment() -> Dict[str, Any]:
 
     base_station = BaseStation(x=30.0, y=450.0, tx_power=1.0)
     receiver = Receiver(x=950.0, y=450.0)
-    warden = Warden(id=1, x=220.0, y=100.0, vx=2.0, vy=1.5)
+    warden = Warden(id=1, x=275.0, y=235.0, vx=2.0, vy=1.5)
 
     return {
         "buildings": buildings,
